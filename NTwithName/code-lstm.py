@@ -62,7 +62,7 @@ import numpy as np
 import tensorflow as tf
 import sys
 
-import NT.codereader as codereader
+import NTwithName.codereader as codereader
 
 flags = tf.flags
 logging = tf.logging
@@ -70,9 +70,9 @@ logging = tf.logging
 flags.DEFINE_string(
     "model", "small",
     "A type of model. Possible options are: small, medium, large.")
-flags.DEFINE_string("data_path", 'data/code/',
+flags.DEFINE_string("data_path", 'D:/py_project/Tensorflow/myEx/RNN/NTwithName/data/',
                     "Where the training/test data is stored.")
-flags.DEFINE_string("save_path", 'data/code/res/',
+flags.DEFINE_string("save_path", 'D:/py_project/Tensorflow/myEx/RNN/NTwithName/data/res/',
                     "Model output directory.")
 flags.DEFINE_bool("use_fp16", False,
                   "Train using 16-bit floats instead of 32bit floats")
@@ -612,12 +612,12 @@ def train():
                 #-----------------------------------------
 
                 print("Epoch: %d Train Perplexity: %.3f" % (i + 1, train_perplexity))
-
-                test_perplexity = run_epoch(session, mtest,'test',id_to_word=id_to_word)
-                print("Test Perplexity: %.3f" % test_perplexity)
-
-            test_perplexity = run_epoch(session, mtest,'test',id_to_word=id_to_word)
-            print("Test Perplexity: %.3f" % test_perplexity)
+            #
+            #     test_perplexity = run_epoch(session, mtest,'test',id_to_word=id_to_word)
+            #     print("Test Perplexity: %.3f" % test_perplexity)
+            #
+            # test_perplexity = run_epoch(session, mtest,'test',id_to_word=id_to_word)
+            # print("Test Perplexity: %.3f" % test_perplexity)
 
             if FLAGS.save_path:
                 print("Saving model to %s." % FLAGS.save_path)
