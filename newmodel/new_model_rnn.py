@@ -1,4 +1,3 @@
-# -*- coding:utf-8 -*-
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -61,10 +60,12 @@ import time
 
 import numpy as np
 import tensorflow as tf
-import new_reader
-import Stack
-# import newmodel.new_reader as new_reader
-# import newmodel.Stack as Stack
+# import new_reader
+# import Stack
+from newmodel import new_reader
+from newmodel import Stack
+from newmodel.generate_test_data import *
+
 import sys
 flags = tf.flags
 logging = tf.logging
@@ -74,12 +75,13 @@ flags.DEFINE_string(
     "A type of model. Possible options are: small, medium, large.")
 flags.DEFINE_string("data_path", 'data/',
                     "Where the training/test data is stored.")
-flags.DEFINE_string("save_path", 'data/res/',
+flags.DEFINE_string("save_path", 'data/resptb60/',
                     "Model output directory.")
 flags.DEFINE_bool("use_fp16", False,
                   "Train using 16-bit floats instead of 32bit floats")
 flags.DEFINE_bool("decode", False,
                   "Set to True for interactive decoding.")
+flags.DEFINE_bool("test", False, "Set to True for interactive generating.")
 flags.DEFINE_bool("generate", False, "Set to True for interactive generating.")
 
 FLAGS = flags.FLAGS
@@ -124,21 +126,17 @@ class PTBModel(object):
         # Slightly better results can be obtained with forget gate biases
         # initialized to 1 but the hyperparameters of the model would need to be
         # different than reported in the paper.
-        lstm_cell = tf.contrib.rnn.BasicLSTMCell(size, forget_bias=0.0, state_is_tuple=True)
-        # lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(size, forget_bias=0.0, state_is_tuple=True)
+        lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(size, forget_bias=0.0, state_is_tuple=True)
         if is_training and config.keep_prob < 1:
-            lstm_cell = tf.contrib.rnn.DropoutWrapper(
+            lstm_cell = tf.nn.rnn_cell.DropoutWrapper(
                 lstm_cell, output_keep_prob=config.keep_prob)
-            # lstm_cell = tf.nn.rnn_cell.DropoutWrapper(
-            #     lstm_cell, output_keep_prob=config.keep_prob)
         # cell=lstm_cell
-        cell = tf.contrib.rnn.MultiRNNCell([lstm_cell] * config.num_layers, state_is_tuple=True)
-        # cell = tf.nn.rnn_cell.MultiRNNCell([lstm_cell] * config.num_layers, state_is_tuple=True)
+        cell = tf.nn.rnn_cell.MultiRNNCell([lstm_cell] * config.num_layers, state_is_tuple=True)
 
         self._initial_state = cell.zero_state(batch_size, data_type())
         self.state_stack = Stack.Stack()
 
-        with tf.device("/gpu:0"):
+        with tf.device("/cpu:0"):
             embedding = tf.get_variable(
                 "embedding", [vocab_size, size], dtype=data_type())
             inputs = tf.nn.embedding_lookup(embedding, input_.input_data)
@@ -173,17 +171,17 @@ class PTBModel(object):
         # def func_default(state,batch):
         #     return state[0][0][batch], state[0][1][batch], state[1][0][batch], state[1][1][batch]
 
-        def func_push(state):
-            self.state_stack.push(state)
-            return state[0][0], state[0][1], state[1][0], state[1][1]
-
-        def func_pop():
-            state = self.state_stack.pop()
-            return state[0][0], state[0][1], state[1][0], state[1][1]
-
-
-        def func_default(state):
-            return state[0][0], state[0][1], state[1][0], state[1][1]
+        # def func_push(state):
+        #     self.state_stack.push(state)
+        #     return state[0][0], state[0][1], state[1][0], state[1][1]
+        #
+        # def func_pop():
+        #     state = self.state_stack.pop()
+        #     return state[0][0], state[0][1], state[1][0], state[1][1]
+        #
+        #
+        # def func_default(state):
+        #     return state[0][0], state[0][1], state[1][0], state[1][1]
 
         with tf.variable_scope("RNN"):
             for time_step in range(num_steps):
@@ -211,21 +209,19 @@ class PTBModel(object):
                 # ss4=tf.reshape(state4,[batch_size,size])
                 # state=((ss1,ss2),(ss3,ss4))
 
-                #todo RNN 注释
                 # new_state=tf.cond(tf.equal(self._input_data[0][time_step], START_MARK), lambda: func_push(state),lambda: func_default(state))
                 # new_state=tf.cond(tf.equal(self._input_data[0][time_step], END_MARK), lambda: func_pop(),lambda :func_default(state))
                 # state=((new_state[0],new_state[1]),(new_state[2],new_state[3]))
 
                 (cell_output, state) = cell(inputs[:, time_step, :], state)
                 outputs.append(cell_output)
-        output = tf.reshape(tf.concat(outputs,1), [-1, size])
-        # output = tf.reshape(tf.concat(1, outputs), [-1, size])
+
+        output = tf.reshape(tf.concat(1, outputs), [-1, size])
         softmax_w = tf.get_variable(
             "softmax_w", [size, vocab_size], dtype=data_type())
         softmax_b = tf.get_variable("softmax_b", [vocab_size], dtype=data_type())
         logits = tf.matmul(output, softmax_w) + softmax_b
-        loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
-        # loss = tf.nn.seq2seq.sequence_loss_by_example(
+        loss = tf.nn.seq2seq.sequence_loss_by_example(
             [logits],
             [tf.reshape(input_.targets, [-1])],
             [tf.ones([batch_size * num_steps], dtype=data_type())])
@@ -288,7 +284,7 @@ class SmallConfig(object):
     learning_rate = 1.0
     max_grad_norm = 5
     num_layers = 2
-    num_steps = 800
+    num_steps = 60
     hidden_size = 200
     max_epoch = 4
     max_max_epoch = 13
@@ -383,7 +379,7 @@ def run_epoch(session, model, eval_op=None, verbose=False, id_to_word=None,end_i
         state = vals["final_state"]
 
         costs += cost
-        iters += model.input.num_steps
+        iters += model.input.num_steps-1
 
         #todo add 计算accuracy
         midInputData = vals["input_data"]
@@ -510,10 +506,8 @@ def train():
                 mtest = PTBModel(is_training=False, config=eval_config, input_=test_input,
                                  START_MARK=START_MARK, END_MARK=END_MARK, PAD_MARK=PAD_MARK)
 
-        Config = tf.ConfigProto()
-        Config.gpu_options.allow_growth = True
         sv = tf.train.Supervisor(logdir=FLAGS.save_path)
-        with sv.managed_session(config=Config) as session:
+        with sv.managed_session() as session:
             for i in range(config.max_max_epoch):
                 lr_decay = config.lr_decay ** max(i + 1 - config.max_epoch, 0.0)
                 m.assign_lr(session, config.learning_rate * lr_decay)
@@ -532,6 +526,73 @@ def train():
                 sv.saver.save(session, FLAGS.save_path, global_step=sv.global_step)
 
 def decode():
+    if not FLAGS.data_path:
+        raise ValueError("Must set --data_path to PTB data directory")
+    config = get_config()
+
+    word_to_id = new_reader.get_word_to_id(FLAGS.data_path)
+    # todo raw_data还应包含weights
+    raw_data = new_reader.raw_data(FLAGS.data_path, word_to_id, config.num_steps)
+    train_data, test_data,voc_size, end_id, _, START_MARK, END_MARK, PAD_MARK = raw_data
+    id_to_word = new_reader.reverseDic(word_to_id)
+
+    config = get_config()
+    global num_steps
+    num_steps = config.num_steps-1
+
+    while True:
+        sys.stdout.write("> ")
+        sys.stdout.flush()
+        token = sys.stdin.readline().strip('\n').split(' ')
+        for i in range(len(token)):
+            if token[i] not in word_to_id:
+                token[i]=word_to_id['UNK']
+            else:
+                token[i]=word_to_id[token[i]]
+        with tf.Graph().as_default():
+            initializer = tf.random_uniform_initializer(-config.init_scale,
+                                                        config.init_scale)
+
+            with tf.name_scope("Train"):
+                decode_input = PTBInput(config=config, data=token, name="TrainInput",isDecode=True)
+                with tf.variable_scope("Model", reuse=None, initializer=initializer):
+                    decode_model = PTBModel(is_training=True, config=config, input_=decode_input,
+                                            START_MARK=START_MARK, END_MARK=END_MARK, PAD_MARK=PAD_MARK)
+                # tf.summary.scalar("Training Loss", m.cost)
+                # tf.summary.scalar("Learning Rate", m.lr)
+
+                ckpt = tf.train.get_checkpoint_state(FLAGS.save_path)
+                if ckpt and tf.train.checkpoint_exists(ckpt.model_checkpoint_path):
+                    print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+                    # model.saver.restore(session, ckpt.model_checkpoint_path)
+                else:
+                    print("Created model with fresh parameters.")
+            sv = tf.train.Supervisor(logdir=FLAGS.save_path)
+            with sv.managed_session() as session:
+                output=run_epoch(session,decode_model,id_to_word,end_id=end_id,isDecode=True)
+                # output = decode_model.step(session)
+                # print(output)
+                tmp = list(output[-1])
+
+
+                #todo 输出top5
+                predOutput=[]
+                count=0
+                while count<5:
+                    index=tmp.index(max(tmp))
+                    if index==PAD_MARK:
+                        tmp[index]=-100
+                        continue
+                    predOutput.append(id_to_word[index])
+                    count+=1
+                    tmp[index]=-100
+
+                print('next token --> ')
+                for i in range(len(predOutput)):
+                    print('%d: %s'%(i+1,predOutput[i]))
+
+
+def generate():
     choice=['1','2','3','4','5','q']
     if not FLAGS.data_path:
         raise ValueError("Must set --data_path to PTB data directory")
@@ -580,7 +641,7 @@ def decode():
                     print("Created model with fresh parameters.")
             sv = tf.train.Supervisor(logdir=FLAGS.save_path)
             with sv.managed_session() as session:
-                output=run_epoch(session,decode_model,'decode',id_to_word,end_id=end_id,isDecode=True)
+                output=run_epoch(session,decode_model,id_to_word,end_id=end_id,isDecode=True)
                 # output = decode_model.step(session)
                 # print(output)
                 tmp = list(output[-1])
@@ -616,10 +677,102 @@ def decode():
                 else:
                     break
 
+def test(type,filename):
+    # wfname='data/'+type+'.txt'
+    # wf=open(wfname,'w')
+    if not FLAGS.data_path:
+        raise ValueError("Must set --data_path to PTB data directory")
+    config = get_config()
+
+    word_to_id = new_reader.get_word_to_id(FLAGS.data_path)
+    # todo raw_data还应包含weights
+    raw_data = new_reader.raw_data(FLAGS.data_path, word_to_id, config.num_steps)
+    train_data, test_data,voc_size, end_id, _, START_MARK, END_MARK, PAD_MARK = raw_data
+    id_to_word = new_reader.reverseDic(word_to_id)
+
+    config = get_config()
+    global num_steps
+    num_steps = config.num_steps-1
+    SUM=0
+    correct_tok=0
+
+    f=open(filename)
+    data=f.readlines()
+    for i in range(len(data)):
+        SUM+=1
+        code=data[i].strip('\n').split(' ')
+        # print(data)
+        testInput=code[0:len(data)-1]
+        testTarget=code[-1]
+        if testTarget not in word_to_id:
+            testTarget='UNK'
+        for j in range(len(testInput)):
+            if testInput[j] not in word_to_id:
+                testInput[j]=word_to_id['UNK']
+            else:
+                testInput[j]=word_to_id[testInput[j]]
+
+        with tf.Graph().as_default():
+            initializer = tf.random_uniform_initializer(-config.init_scale,
+                                                        config.init_scale)
+            with tf.name_scope("Train"):
+                decode_input = PTBInput(config=config, data=testInput, name="TrainInput",isDecode=True)
+                with tf.variable_scope("Model", reuse=None, initializer=initializer):
+                    decode_model = PTBModel(is_training=True, config=config, input_=decode_input,
+                                            START_MARK=START_MARK, END_MARK=END_MARK, PAD_MARK=PAD_MARK)
+
+            sv = tf.train.Supervisor(logdir=FLAGS.save_path)
+            with sv.managed_session() as session:
+                output=run_epoch(session,decode_model,id_to_word,end_id=end_id,isDecode=True)
+                tmp = list(output[-1])
+
+                #top10
+                predOutput=[]
+                count=0
+                while count<10:
+                    index=tmp.index(max(tmp))
+                    #todo fix me
+                    if index==PAD_MARK or id_to_word[index] in stop_words:
+                        tmp[index]=-100
+                        continue
+                    predOutput.append(id_to_word[index])
+                    count+=1
+                    tmp[index]=-100
+                sv.saver.save(session, FLAGS.save_path, global_step=sv.global_step)
+
+            if type=='T':
+                for i in range(len(predOutput)):
+                    if is_terminal(predOutput[i]):
+                        print("%s,%s"%(predOutput[i],testTarget))
+                        if(predOutput[i]==testTarget):
+                            correct_tok+=1
+                        break
+            else:
+                for i in range(len(predOutput)):
+                    if is_nonterminal(predOutput[i]):
+                        print("%s,%s"%(predOutput[i],testTarget))
+                        if(predOutput[i]==testTarget):
+                            correct_tok+=1
+                        break
+        print(' %d %d'%(correct_tok,SUM))
+        acc=correct_tok*1.0/SUM
+        # wf.write('Accuracy :'+str(acc)+'\n')
+        print("Accuracy : %.3f"%acc)
+    acc=correct_tok*1.0/SUM
+    # wf.write('Final Accuracy :'+str(acc)+'\n')
+    # wf.close()
+    print("Final Accuracy : %.3f"%acc)
+
+
 def main(_):
     if FLAGS.decode:
         decode()
+    if FLAGS.test:
+        test('NT','data/train_nonterminal60.txt')
+    if FLAGS.generate:
+        generate()
     else:
         train()
+
 if __name__ == "__main__":
     tf.app.run()

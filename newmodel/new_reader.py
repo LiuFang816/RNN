@@ -76,8 +76,8 @@ def _file_to_word_ids(filename, word_to_id, max_length=None):
 
 
 def raw_data(data_path=None, word_to_id=None, max_length=None):
-    train_path = os.path.join(data_path, "train.txt")
-    test_path = os.path.join(data_path, "test.txt")
+    train_path = os.path.join(data_path, "shuffle_train.txt")
+    test_path = os.path.join(data_path, "shuffle_test.txt")
 
     word_to_id = word_to_id
     train_data= _file_to_word_ids(train_path, word_to_id, max_length)
@@ -106,7 +106,7 @@ def _build_vocab(filename):
 
 
 def get_word_to_id(data_path=None):
-    train_path = os.path.join(data_path, "train.txt")
+    train_path = os.path.join(data_path, "shuffle_train.txt")
     word_to_id = _build_vocab(train_path)
     return word_to_id
 
